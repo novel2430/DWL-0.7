@@ -81,7 +81,7 @@
 #define MAX(A, B)               ((A) > (B) ? (A) : (B))
 #define MIN(A, B)               ((A) < (B) ? (A) : (B))
 #define CLEANMASK(mask)         (mask & ~WLR_MODIFIER_CAPS)
-#define VISIBLEON(C, M)         ((M) && (C)->mon == (M) && ((C)->tags & (M)->tagset[(M)->seltags]))
+#define VISIBLEON(C, M)         ((M) && (C)->mon == (M) && (((C)->tags & (M)->tagset[(M)->seltags]) || C->issticky))
 #define LENGTH(X)               (sizeof X / sizeof X[0])
 #define END(A)                  ((A) + LENGTH(A))
 #define TAGMASK                 ((1u << LENGTH(tags)) - 1)
@@ -156,7 +156,7 @@ typedef struct {
 #endif
 	unsigned int bw;
 	uint32_t tags;
-	int isfloating, isurgent, isfullscreen, neverdim;
+	int isfloating, isurgent, isfullscreen, neverdim, issticky;
 	uint32_t resize; /* configure serial of a pending resize */
 } Client;
 
@@ -370,6 +370,7 @@ static void setcursor(struct wl_listener *listener, void *data);
 static void setcursorshape(struct wl_listener *listener, void *data);
 static void setfloating(Client *c, int floating);
 static void setfullscreen(Client *c, int fullscreen);
+static void setsticky(Client *c, int sticky);
 static void setgamma(struct wl_listener *listener, void *data);
 static void setlayout(const Arg *arg);
 static void setmfact(const Arg *arg);
@@ -387,6 +388,7 @@ static void togglebar(const Arg *arg);
 static void toggledimming(const Arg *arg);
 static void toggledimmingclient(const Arg *arg);
 static void togglefloating(const Arg *arg);
+static void togglesticky(const Arg *arg);
 static void togglefullscreen(const Arg *arg);
 static void toggletag(const Arg *arg);
 static void toggleview(const Arg *arg);
@@ -2714,6 +2716,17 @@ setgamma(struct wl_listener *listener, void *data)
 }
 
 void
+setsticky(Client *c, int sticky)
+{
+	if(sticky && !c->issticky) {
+		c->issticky = 1;
+	} else if(!sticky && c->issticky) {
+		c->issticky = 0;
+		arrange(c->mon);
+	}
+}
+
+void
 setlayout(const Arg *arg)
 {
 	if (!selmon)
@@ -3190,6 +3203,16 @@ togglefullscreen(const Arg *arg)
 	Client *sel = focustop(selmon);
 	if (sel)
 		setfullscreen(sel, !sel->isfullscreen);
+}
+
+void
+togglesticky(const Arg *arg)
+{
+	Client *c = focustop(selmon);
+	if(!c)
+		return;
+
+	setsticky(c, !c->issticky);
 }
 
 void
