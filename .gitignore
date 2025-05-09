@@ -7,3 +7,5 @@ config.h
 
 handwrite-unstable-v1-protocol-client.h
 handwrite-unstable-v1-protocol.c
+
+*.rej
