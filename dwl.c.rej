@@ -1,0 +1,175 @@
+diff a/dwl.c b/dwl.c	(rejected hunks)
+@@ -76,14 +79,17 @@
+ #define VISIBLEON(C, M)         ((M) && (C)->mon == (M) && ((C)->tags & (M)->tagset[(M)->seltags]))
+ #define LENGTH(X)               (sizeof X / sizeof X[0])
+ #define END(A)                  ((A) + LENGTH(A))
+-#define TAGMASK                 ((1u << TAGCOUNT) - 1)
++#define TAGMASK                 ((1u << LENGTH(tags)) - 1)
+ #define LISTEN(E, L, H)         wl_signal_add((E), ((L)->notify = (H), (L)))
+ #define LISTEN_STATIC(E, H)     do { static struct wl_listener _l = {.notify = (H)}; wl_signal_add((E), &_l); } while (0)
++#define TEXTW(mon, text)        (drwl_font_getwidth(mon->drw, text) + mon->lrpad)
+ 
+ /* enums */
++enum { SchemeNorm, SchemeSel, SchemeUrg }; /* color schemes */
+ enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
+ enum { XDGShell, LayerShell, X11 }; /* client types */
+ enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
++enum { ClkTagBar, ClkLtSymbol, ClkStatus, ClkTitle, ClkClient, ClkRoot }; /* clicks */
+ #ifdef XWAYLAND
+ enum { NetWMWindowTypeDialog, NetWMWindowTypeSplash, NetWMWindowTypeToolbar,
+ 	NetWMWindowTypeUtility, NetLast }; /* EWMH atoms */
+@@ -335,9 +367,11 @@ static void setsel(struct wl_listener *listener, void *data);
+ static void setup(void);
+ static void spawn(const Arg *arg);
+ static void startdrag(struct wl_listener *listener, void *data);
++static int statusin(int fd, unsigned int mask, void *data);
+ static void tag(const Arg *arg);
+ static void tagmon(const Arg *arg);
+ static void tile(Monitor *m);
++static void togglebar(const Arg *arg);
+ static void togglefloating(const Arg *arg);
+ static void togglefullscreen(const Arg *arg);
+ static void toggletag(const Arg *arg);
+@@ -413,6 +448,15 @@ static struct wlr_box sgeom;
+ static struct wl_list mons;
+ static Monitor *selmon;
+ 
++static char stext[256];
++static struct wl_event_source *status_event_source;
++
++static const struct wlr_buffer_impl buffer_impl = {
++    .destroy = bufdestroy,
++    .begin_data_ptr_access = bufdatabegin,
++    .end_data_ptr_access = bufdataend,
++};
++
+ #ifdef XWAYLAND
+ static void activatex11(struct wl_listener *listener, void *data);
+ static void associatex11(struct wl_listener *listener, void *data);
+@@ -1371,13 +1612,13 @@ focusclient(Client *c, int lift)
+ 		/* Don't change border color if there is an exclusive focus or we are
+ 		 * handling a drag operation */
+ 		if (!exclusive_focus && !seat->drag)
+-			client_set_border_color(c, focuscolor);
++			client_set_border_color(c, (float[])COLOR(colors[SchemeSel][ColBorder]));
+ 	}
+ 
+ 	/* Deactivate old client if focus is changing */
+ 	if (old && (!c || client_surface(c) != old)) {
+ 		/* If an overlay is focused, don't focus or activate the client,
+-		 * but only update its position in fstack to render its border with focuscolor
++		 * but only update its position in fstack to render its border with its color
+ 		 * and focus it after the overlay is closed. */
+ 		if (old_client_type == LayerShell && wlr_scene_node_coords(
+ 					&old_l->scene->node, &unused_lx, &unused_ly)
+@@ -1388,12 +1629,11 @@ focusclient(Client *c, int lift)
+ 		/* Don't deactivate old client if the new one wants focus, as this causes issues with winecfg
+ 		 * and probably other clients */
+ 		} else if (old_c && !client_is_unmanaged(old_c) && (!c || !client_wants_focus(c))) {
+-			client_set_border_color(old_c, bordercolor);
+-
++			client_set_border_color(old_c, (float[])COLOR(colors[SchemeNorm][ColBorder]));
+ 			client_activate_surface(old, 0);
+ 		}
+ 	}
+-	printstatus();
++	drawbars();
+ 
+ 	if (!c) {
+ 		/* With no client, all we have left is to clear focus */
+@@ -1738,7 +1978,7 @@ mapnotify(struct wl_listener *listener, void *data)
+ 	} else {
+ 		applyrules(c);
+ 	}
+-	printstatus();
++	drawbars();
+ 
+ unset_fullscreen:
+ 	m = c->mon ? c->mon : xytomon(c->geom.x, c->geom.y);
+@@ -2032,46 +2272,6 @@ pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
+ 	wlr_seat_pointer_notify_motion(seat, time, sx, sy);
+ }
+ 
+-void
+-printstatus(void)
+-{
+-	Monitor *m = NULL;
+-	Client *c;
+-	uint32_t occ, urg, sel;
+-	const char *appid, *title;
+-
+-	wl_list_for_each(m, &mons, link) {
+-		occ = urg = 0;
+-		wl_list_for_each(c, &clients, link) {
+-			if (c->mon != m)
+-				continue;
+-			occ |= c->tags;
+-			if (c->isurgent)
+-				urg |= c->tags;
+-		}
+-		if ((c = focustop(m))) {
+-			title = client_get_title(c);
+-			appid = client_get_appid(c);
+-			printf("%s title %s\n", m->wlr_output->name, title ? title : broken);
+-			printf("%s appid %s\n", m->wlr_output->name, appid ? appid : broken);
+-			printf("%s fullscreen %d\n", m->wlr_output->name, c->isfullscreen);
+-			printf("%s floating %d\n", m->wlr_output->name, c->isfloating);
+-			sel = c->tags;
+-		} else {
+-			printf("%s title \n", m->wlr_output->name);
+-			printf("%s appid \n", m->wlr_output->name);
+-			printf("%s fullscreen \n", m->wlr_output->name);
+-			printf("%s floating \n", m->wlr_output->name);
+-			sel = 0;
+-		}
+-
+-		printf("%s selmon %u\n", m->wlr_output->name, m == selmon);
+-		printf("%s tags %"PRIu32" %"PRIu32" %"PRIu32" %"PRIu32"\n",
+-			m->wlr_output->name, occ, m->tagset[m->seltags], sel, urg);
+-		printf("%s layout %s\n", m->wlr_output->name, m->ltsymbol);
+-	}
+-	fflush(stdout);
+-}
+ 
+ void
+ powermgrsetmode(struct wl_listener *listener, void *data)
+@@ -2363,7 +2550,7 @@ setlayout(const Arg *arg)
+ 		selmon->lt[selmon->sellt] = (Layout *)arg->v;
+ 	strncpy(selmon->ltsymbol, selmon->lt[selmon->sellt]->symbol, LENGTH(selmon->ltsymbol));
+ 	arrange(selmon);
+-	printstatus();
++	drawbar(selmon);
+ }
+ 
+ /* arg > 1.0 will set mfact absolutely */
+@@ -2722,6 +2940,14 @@ tile(Monitor *m)
+ 	}
+ }
+ 
++void
++togglebar(const Arg *arg)
++{
++	wlr_scene_node_set_enabled(&selmon->scene_buffer->node,
++		!selmon->scene_buffer->node.enabled);
++	arrangelayers(selmon);
++}
++
+ void
+ togglefloating(const Arg *arg)
+ {
+@@ -3004,9 +3271,12 @@ xytonode(double x, double y, struct wlr_surface **psurface,
+ 		if (!(node = wlr_scene_node_at(&layers[layer]->node, x, y, nx, ny)))
+ 			continue;
+ 
+-		if (node->type == WLR_SCENE_NODE_BUFFER)
+-			surface = wlr_scene_surface_try_from_buffer(
+-					wlr_scene_buffer_from_node(node))->surface;
++		if (node->type == WLR_SCENE_NODE_BUFFER) {
++			scene_surface = wlr_scene_surface_try_from_buffer(
++					wlr_scene_buffer_from_node(node));
++			if (!scene_surface) continue;
++			surface = scene_surface->surface;
++		}
+ 		/* Walk the tree to find a node that knows the client */
+ 		for (pnode = node; pnode && !c; pnode = &pnode->parent->node)
+ 			c = pnode->data;
