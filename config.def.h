@@ -146,6 +146,9 @@ static const char *volumedowncmd[] = { "my-volume", "down", NULL };
 static const char *volumeupcmd[] = { "my-volume", "up", NULL };
 static const char *brightnessupcmd[] = { "brightnessctl", "set", "10%+", NULL };
 static const char *brightnessdowncmd[] = { "brightnessctl", "set", "10%-", NULL };
+static const char *playerctlplaypausecmd[] = { "playerctl", "play-pause", NULL };
+static const char *playerctlnextcmd[] = { "playerctl", "next", NULL };
+static const char *playerctlprevcmd[] = { "playerctl", "prev", NULL };
 
 static const Key keys[] = {
 	/* Note that Shift changes certain key codes: c -> C, 2 -> at, etc. */
@@ -164,6 +167,9 @@ static const Key keys[] = {
 	{ 0,                         XKB_KEY_XF86AudioMute, spawn,       {.v = volumemutecmd} },
 	{ 0,                         XKB_KEY_XF86MonBrightnessUp, spawn, {.v = brightnessupcmd} },
 	{ 0,                         XKB_KEY_XF86MonBrightnessDown, spawn, {.v = brightnessdowncmd} },
+	{ 0,                         XKB_KEY_XF86AudioPlay,       spawn, {.v = playerctlplaypausecmd} },
+	{ 0,                         XKB_KEY_XF86AudioNext,       spawn, {.v = playerctlnextcmd} },
+	{ 0,                         XKB_KEY_XF86AudioPrev,       spawn, {.v = playerctlprevcmd} },
   // Other Stuff
 // { MODKEY,                    XKB_KEY_b,          togglebar,      {0} },
 	{ MODKEY,                    XKB_KEY_j,          focusstack,     {.i = +1} },
