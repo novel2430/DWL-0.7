@@ -124,11 +124,12 @@ static const enum libinput_config_tap_button_map button_map = LIBINPUT_CONFIG_TA
 
 /* commands */
 static const char *termcmd[] = { "wezterm", NULL };
-static const char *menucmd[] = { "bemenu-drun", NULL };
+static const char *menucmd[] = { "wofi", "--show", "drun", NULL };
+static const char *runmenucmd[] = { "wofi", "--show", "run", NULL };
 static const char *browsercmd[] = { "zen-browser", NULL };
 static const char *lockcmd[] = { "my-swaylock", "manual", NULL };
-static const char *clipboardcmd[] = { "bemenu-wlroot-clipboard", NULL };
-static const char *powermenucmd[] = { "bemenu-power-menu", NULL };
+static const char *clipboardcmd[] = { "wlroot-clipboard", NULL };
+static const char *powermenucmd[] = { "wofi-power-menu", NULL };
 static const char *screenshotcmd[] = { "grim-slurp-screenshot", "full", NULL };
 static const char *volumemutecmd[] = { "my-volume", "mute", NULL };
 static const char *volumedowncmd[] = { "my-volume", "down", NULL };
@@ -144,6 +145,7 @@ static const Key keys[] = {
 	/* modifier                  key                 function        argument */
 	// { WLR_MODIFIER_ALT,          XKB_KEY_Sys_Req,    spawn,          {.v = screenshotcmd} },
 	{ MODKEY,                    XKB_KEY_d,          spawn,          {.v = menucmd} },
+	{ MODKEY,                    XKB_KEY_r,          spawn,          {.v = runmenucmd} },
 	{ MODKEY,                    XKB_KEY_Return,     spawn,          {.v = termcmd} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_F,          spawn,          {.v = browsercmd} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_L,          spawn,          {.v = lockcmd} },
