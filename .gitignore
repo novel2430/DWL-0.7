@@ -4,3 +4,7 @@ dwl
 *-protocol.h
 .ccls-cache
 config.h
+config.jsonc
+*.rej
+handwrite-unstable-v1-protocol-client.h
+handwrite-unstable-v1-protocol.c

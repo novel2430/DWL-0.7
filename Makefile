@@ -17,13 +17,14 @@ DWLCFLAGS = `$(PKG_CONFIG) --cflags $(PKGS)` $(DWLCPPFLAGS) $(DWLDEVCFLAGS) $(CF
 LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` -lm $(LIBS)
 
 all: dwl handwrite-unstable-v1-protocol-client.h
-dwl: dwl.o util.o handwrite-unstable-v1-protocol.o
-	$(CC) dwl.o util.o handwrite-unstable-v1-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
+dwl: dwl.o util.o handwrite-unstable-v1-protocol.o dwl-ipc-unstable-v2-protocol.o
+	$(CC) dwl.o util.o handwrite-unstable-v1-protocol.o dwl-ipc-unstable-v2-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
 handwrite-unstable-v1-protocol.o: handwrite-unstable-v1-protocol.c handwrite-unstable-v1-protocol.h
 dwl.o: dwl.c client.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \
-	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h handwrite-unstable-v1-protocol.h IM.h
+	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h handwrite-unstable-v1-protocol.h IM.h dwl-ipc-unstable-v2-protocol.h
 util.o: util.c util.h
+dwl-ipc-unstable-v2-protocol.o: dwl-ipc-unstable-v2-protocol.c dwl-ipc-unstable-v2-protocol.h
 
 # wayland-scanner is a tool which generates C headers and rigging for Wayland
 # protocols, which are specified in XML. wlroots requires you to rig these up
@@ -46,6 +47,12 @@ wlr-output-power-management-unstable-v1-protocol.h:
 xdg-shell-protocol.h:
 	$(WAYLAND_SCANNER) server-header \
 		$(WAYLAND_PROTOCOLS)/stable/xdg-shell/xdg-shell.xml $@
+dwl-ipc-unstable-v2-protocol.h:
+	$(WAYLAND_SCANNER) server-header \
+		protocols/dwl-ipc-unstable-v2.xml $@
+dwl-ipc-unstable-v2-protocol.c:
+	$(WAYLAND_SCANNER) private-code \
+		protocols/dwl-ipc-unstable-v2.xml $@
 handwrite-unstable-v1-protocol.h:
 	$(WAYLAND_SCANNER) server-header \
 		protocols/handwrite-unstable-v1.xml $@
