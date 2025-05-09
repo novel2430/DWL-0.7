@@ -4,3 +4,5 @@ dwl
 *-protocol.h
 .ccls-cache
 config.h
+
+handwrite-unstable-v1-protocol-client.h
