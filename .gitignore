@@ -5,6 +5,7 @@ dwl
 .ccls-cache
 config.h
 config.jsonc
+config.css
 *.rej
 handwrite-unstable-v1-protocol-client.h
 handwrite-unstable-v1-protocol.c
