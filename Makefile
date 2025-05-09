@@ -12,18 +12,28 @@ DWLDEVCFLAGS = -g -pedantic -Wall -Wextra -Wdeclaration-after-statement \
 	-Wfloat-conversion
 
 # CFLAGS / LDFLAGS
-PKGS      = wlroots-0.18 wayland-server xkbcommon libinput pixman-1 fcft $(XLIBS)
+PKGS      = wlroots-0.18 wayland-server xkbcommon libinput pixman-1 fcft $(XLIBS) dbus-1
 DWLCFLAGS = `$(PKG_CONFIG) --cflags $(PKGS)` $(DWLCPPFLAGS) $(DWLDEVCFLAGS) $(CFLAGS)
 LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` -lm $(LIBS)
+TRAYOBJS = systray/watcher.o systray/tray.o systray/item.o systray/icon.o systray/menu.o systray/helpers.o
+TRAYDEPS = systray/watcher.h systray/tray.h systray/item.h systray/icon.h systray/menu.h systray/helpers.h
+
 
 all: dwl handwrite-unstable-v1-protocol-client.h
-dwl: dwl.o util.o handwrite-unstable-v1-protocol.o
-	$(CC) dwl.o util.o handwrite-unstable-v1-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
+dwl: dwl.o util.o handwrite-unstable-v1-protocol.o dbus.o $(TRAYOBJS) $(TRAYDEPS)
+	$(CC) dwl.o util.o handwrite-unstable-v1-protocol.o dbus.o $(TRAYOBJS) $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
 handwrite-unstable-v1-protocol.o: handwrite-unstable-v1-protocol.c handwrite-unstable-v1-protocol.h
-dwl.o: dwl.c client.h config.h config.mk cursor-shape-v1-protocol.h \
+dwl.o: dwl.c client.h dbus.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \
-	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h handwrite-unstable-v1-protocol.h IM.h
+	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h handwrite-unstable-v1-protocol.h IM.h $(TRAYDEPS)
 util.o: util.c util.h
+dbus.o: dbus.c dbus.h
+systray/watcher.o: systray/watcher.c $(TRAYDEPS)
+systray/tray.o: systray/tray.c $(TRAYDEPS)
+systray/item.o: systray/item.c $(TRAYDEPS)
+systray/icon.o: systray/icon.c $(TRAYDEPS)
+systray/menu.o: systray/menu.c $(TRAYDEPS)
+systray/helpers.o: systray/helpers.c $(TRAYDEPS)
 
 # wayland-scanner is a tool which generates C headers and rigging for Wayland
 # protocols, which are specified in XML. wlroots requires you to rig these up
@@ -59,7 +69,7 @@ handwrite-unstable-v1-protocol.c:
 config.h:
 	cp config.def.h $@
 clean:
-	rm -f dwl *.o *-protocol.h handwrite-unstable-v1-protocol-client.h handwrite-unstable-v1-protocol.c
+	rm -f dwl *.o *-protocol.h handwrite-unstable-v1-protocol-client.h handwrite-unstable-v1-protocol.c systray/*.o
 
 dist: clean
 	mkdir -p dwl-$(VERSION)
