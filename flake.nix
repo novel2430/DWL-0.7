@@ -2,7 +2,7 @@
   description = "DWL Flake";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs";
   };
 
   outputs = { self, nixpkgs }:
@@ -22,7 +22,7 @@
         xwayland
         pkg-config
         
-        wlroots
+        wlroots_0_18
         tllist
         fcft
         pixman
