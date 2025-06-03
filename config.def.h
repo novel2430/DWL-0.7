@@ -8,9 +8,9 @@ static const int sloppyfocus               = 0;  /* focus follows mouse */
 static const int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will disable idle tracking even if it's surface isn't visible  */
 static const unsigned int borderpx         = 3;  /* border pixel of windows */
 static const float rootcolor[]             = COLOR(0x222222ff);
-static const float bordercolor[]           = COLOR(0x1c2e36ff);
-static const float focuscolor[]            = COLOR(0xe0dedaff);
-static const float urgentcolor[]           = COLOR(0xeb6f92ff);
+static const float bordercolor[]           = COLOR(0x3b4252ff);
+static const float focuscolor[]            = COLOR(0xeceff4ff);
+static const float urgentcolor[]           = COLOR(0xbf616aff);
 static const float unfocuseddim[]            = COLOR(0x00000020);
 /* This conforms to the xdg-protocol. Set the alpha to zero to restore the old behavior */
 static const float fullscreen_bg[]         = {0.1f, 0.1f, 0.1f, 1.0f}; /* You can also use glsl colors */
