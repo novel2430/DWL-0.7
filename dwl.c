@@ -476,6 +476,7 @@ struct Pertag {
 	float mfacts[TAGCOUNT + 1]; /* mfacts per tag */
 	unsigned int sellts[TAGCOUNT + 1]; /* selected layouts */
 	const Layout *ltidxs[TAGCOUNT + 1][2]; /* matrix of tags and layouts indexes  */
+  Client *prev_focused[TAGCOUNT];
 };
 
 #ifdef IM
@@ -1353,6 +1354,12 @@ destroynotify(struct wl_listener *listener, void *data)
 		wl_list_remove(&c->map.link);
 		wl_list_remove(&c->unmap.link);
 	}
+  if (c->mon && c->mon->pertag) {
+    for (int i = 0; i < TAGCOUNT; i++) {
+      if (c->mon->pertag->prev_focused[i] == c)
+        c->mon->pertag->prev_focused[i] = NULL;
+    }
+  }
 	free(c);
 }
 
@@ -1649,6 +1656,13 @@ focusclient(Client *c, int lift)
 		selmon = c->mon;
 		c->isurgent = 0;
 		client_restack_surface(c);
+
+    // Store focus client
+    if (selmon && selmon->pertag) {
+      int tagidx = selmon->pertag->curtag - 1;
+      if (tagidx >= 0 && tagidx < TAGCOUNT)
+        selmon->pertag->prev_focused[tagidx] = c;
+    }
 
 		/* Don't change border color if there is an exclusive focus or we are
 		 * handling a drag operation */
@@ -3392,7 +3406,17 @@ view(const Arg *arg)
 	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
 	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
 
-	focusclient(focustop(selmon), 1);
+  // try to restore focus client
+  Client *target = NULL;
+  int tagidx = selmon->pertag->curtag - 1;
+  if (selmon->pertag && tagidx >= 0 && tagidx < TAGCOUNT) {
+    Client *rec = selmon->pertag->prev_focused[tagidx];
+    if (rec && rec->mon == selmon && (rec->tags & arg->ui))
+      target = rec;
+  }
+  focusclient(target ? target : focustop(selmon), 1);
+
+	//focusclient(focustop(selmon), 1);
 	arrange(selmon);
 	printstatus();
 }
