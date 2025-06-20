@@ -384,6 +384,8 @@ static void xytonode(double x, double y, struct wlr_surface **psurface,
 		Client **pc, LayerSurface **pl, double *nx, double *ny);
 static void zoom(const Arg *arg);
 static void regions(const Arg *arg);
+static void remembertoggleview(const Arg *arg);
+static void rememberview(const Arg *arg);
 
 /* variables */
 static const char broken[] = "broken";
@@ -471,6 +473,8 @@ struct Pertag {
 	float mfacts[TAGCOUNT + 1]; /* mfacts per tag */
 	unsigned int sellts[TAGCOUNT + 1]; /* selected layouts */
 	const Layout *ltidxs[TAGCOUNT + 1][2]; /* matrix of tags and layouts indexes  */
+  Client *prev_focused[TAGCOUNT];
+  uint32_t remember_tag[TAGCOUNT + 1];
 };
 
 /* function implementations */
@@ -1109,6 +1113,11 @@ createmon(struct wl_listener *listener, void *data)
 		wlr_output_layout_add_auto(output_layout, wlr_output);
 	else
 		wlr_output_layout_add(output_layout, wlr_output, m->m.x, m->m.y);
+
+  // create default pertag remember tag
+  for (int i = 1; i <= TAGCOUNT; i++) {
+    m->pertag->remember_tag[i] = (1 << (i - 1));
+  }
 }
 
 void
@@ -1338,6 +1347,12 @@ destroynotify(struct wl_listener *listener, void *data)
 		wl_list_remove(&c->map.link);
 		wl_list_remove(&c->unmap.link);
 	}
+  if (c->mon && c->mon->pertag) {
+    for (int i = 0; i < TAGCOUNT; i++) {
+      if (c->mon->pertag->prev_focused[i] == c)
+        c->mon->pertag->prev_focused[i] = NULL;
+    }
+  }
 	free(c);
 }
 
@@ -1634,6 +1649,13 @@ focusclient(Client *c, int lift)
 		selmon = c->mon;
 		c->isurgent = 0;
 		client_restack_surface(c);
+
+    // Store focus client
+    if (selmon && selmon->pertag) {
+      int tagidx = selmon->pertag->curtag - 1;
+      if (tagidx >= 0 && tagidx < TAGCOUNT)
+        selmon->pertag->prev_focused[tagidx] = c;
+    }
 
 		/* Don't change border color if there is an exclusive focus or we are
 		 * handling a drag operation */
@@ -3083,6 +3105,42 @@ toggleview(const Arg *arg)
 }
 
 void
+remembertoggleview(const Arg *arg)
+{
+	uint32_t newtagset;
+	size_t i;
+	if (!(newtagset = selmon ? selmon->tagset[selmon->seltags] ^ (arg->ui & TAGMASK) : 0))
+		return;
+
+	if (newtagset == (uint32_t)~0) {
+		selmon->pertag->prevtag = selmon->pertag->curtag;
+		selmon->pertag->curtag = 0;
+	}
+
+	/* test if the user did not select the same tag */
+	if (!(newtagset & 1 << (selmon->pertag->curtag - 1))) {
+		selmon->pertag->prevtag = selmon->pertag->curtag;
+		for (i = 0; !(newtagset & 1 << i); i++) ;
+		selmon->pertag->curtag = i + 1;
+	}
+
+  // remember tagset
+  selmon->pertag->remember_tag[selmon->pertag->curtag] = newtagset;
+
+	/* apply settings for this view */
+	selmon->nmaster = selmon->pertag->nmasters[selmon->pertag->curtag];
+	selmon->mfact = selmon->pertag->mfacts[selmon->pertag->curtag];
+	selmon->sellt = selmon->pertag->sellts[selmon->pertag->curtag];
+	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
+	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
+
+	selmon->tagset[selmon->seltags] = newtagset;
+	focusclient(focustop(selmon), 1);
+	arrange(selmon);
+	printstatus();
+}
+
+void
 unlocksession(struct wl_listener *listener, void *data)
 {
 	SessionLock *lock = wl_container_of(listener, lock, unlock);
@@ -3291,7 +3349,64 @@ view(const Arg *arg)
 	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
 	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
 
-	focusclient(focustop(selmon), 1);
+  // try to restore focus client
+  Client *target = NULL;
+  int tagidx = selmon->pertag->curtag - 1;
+  if (selmon->pertag && tagidx >= 0 && tagidx < TAGCOUNT) {
+    Client *rec = selmon->pertag->prev_focused[tagidx];
+    if (rec && rec->mon == selmon && (rec->tags & arg->ui))
+      target = rec;
+  }
+  focusclient(target ? target : focustop(selmon), 1);
+	//focusclient(focustop(selmon), 1);
+	arrange(selmon);
+	printstatus();
+}
+
+void
+rememberview(const Arg *arg)
+{
+	size_t i, tmptag;
+
+	if (!selmon || (arg->ui & TAGMASK) == selmon->tagset[selmon->seltags])
+		return;
+	selmon->seltags ^= 1; /* toggle sel tagset */
+	if (arg->ui & ~0) {
+		selmon->tagset[selmon->seltags] = arg->ui & TAGMASK;
+		selmon->pertag->prevtag = selmon->pertag->curtag;
+
+		if (arg->ui == TAGMASK)
+			selmon->pertag->curtag = 0;
+		else {
+			for (i = 0; !(arg->ui & 1 << i); i++) ;
+			selmon->pertag->curtag = i + 1;
+		}
+	} else {
+		tmptag = selmon->pertag->prevtag;
+		selmon->pertag->prevtag = selmon->pertag->curtag;
+		selmon->pertag->curtag = tmptag;
+	}
+	
+  uint32_t restored = selmon->pertag->remember_tag[selmon->pertag->curtag];
+  selmon->tagset[selmon->seltags] = restored;
+
+	selmon->nmaster = selmon->pertag->nmasters[selmon->pertag->curtag];
+	selmon->mfact = selmon->pertag->mfacts[selmon->pertag->curtag];
+	selmon->sellt = selmon->pertag->sellts[selmon->pertag->curtag];
+	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
+	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
+
+  // try to restore focus client
+  Client *target = NULL;
+  int tagidx = selmon->pertag->curtag - 1;
+  if (selmon->pertag && tagidx >= 0 && tagidx < TAGCOUNT) {
+    Client *rec = selmon->pertag->prev_focused[tagidx];
+    if (rec && rec->mon == selmon && (rec->tags & arg->ui))
+      target = rec;
+  }
+  focusclient(target ? target : focustop(selmon), 1);
+
+	//focusclient(focustop(selmon), 1);
 	arrange(selmon);
 	printstatus();
 }
