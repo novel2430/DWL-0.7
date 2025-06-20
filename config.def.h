@@ -13,7 +13,7 @@ static const float focuscolor[]            = COLOR(0xeceff4ff);
 static const float urgentcolor[]           = COLOR(0xbf616aff);
 static const float unfocuseddim[]            = COLOR(0x00000020);
 /* This conforms to the xdg-protocol. Set the alpha to zero to restore the old behavior */
-static const float fullscreen_bg[]         = {0.0f, 0.0f, 0.0f, 1.0f}; /* You can also use glsl colors */
+static const float fullscreen_bg[]         = {0.0f, 0.0f, 0.0f, 0.0f}; /* You can also use glsl colors */
 
 /* tagging - TAGCOUNT must be no greater than 31 */
 #define TAGCOUNT (9)
