@@ -74,7 +74,7 @@
 #define MAX(A, B)               ((A) > (B) ? (A) : (B))
 #define MIN(A, B)               ((A) < (B) ? (A) : (B))
 #define CLEANMASK(mask)         (mask & ~WLR_MODIFIER_CAPS)
-#define VISIBLEON(C, M)         ((M) && (C)->mon == (M) && ((C)->tags & (M)->tagset[(M)->seltags]))
+#define VISIBLEON(C, M)         ((M) && (C)->mon == (M) && (((C)->tags & (M)->tagset[(M)->seltags]) || C->issticky))
 #define LENGTH(X)               (sizeof X / sizeof X[0])
 #define END(A)                  ((A) + LENGTH(A))
 #define TAGMASK                 ((1u << TAGCOUNT) - 1)
@@ -142,7 +142,7 @@ typedef struct {
 #endif
 	unsigned int bw;
 	uint32_t tags;
-	int isfloating, isurgent, isfullscreen, neverdim;
+	int isfloating, isurgent, isfullscreen, neverdim, issticky;
 	uint32_t resize; /* configure serial of a pending resize */
 } Client;
 
@@ -349,6 +349,7 @@ static void setcursor(struct wl_listener *listener, void *data);
 static void setcursorshape(struct wl_listener *listener, void *data);
 static void setfloating(Client *c, int floating);
 static void setfullscreen(Client *c, int fullscreen);
+static void setsticky(Client *c, int sticky);
 static void setgamma(struct wl_listener *listener, void *data);
 static void setlayout(const Arg *arg);
 static void setmfact(const Arg *arg);
@@ -365,6 +366,7 @@ static void togglebar(const Arg *arg);
 static void toggledimming(const Arg *arg);
 static void toggledimmingclient(const Arg *arg);
 static void togglefloating(const Arg *arg);
+static void togglesticky(const Arg *arg);
 static void togglefullscreen(const Arg *arg);
 static void toggletag(const Arg *arg);
 static void toggleview(const Arg *arg);
@@ -381,6 +383,7 @@ static Monitor *xytomon(double x, double y);
 static void xytonode(double x, double y, struct wlr_surface **psurface,
 		Client **pc, LayerSurface **pl, double *nx, double *ny);
 static void zoom(const Arg *arg);
+static void regions(const Arg *arg);
 
 /* variables */
 static const char broken[] = "broken";
@@ -2595,6 +2598,17 @@ setgamma(struct wl_listener *listener, void *data)
 }
 
 void
+setsticky(Client *c, int sticky)
+{
+	if(sticky && !c->issticky) {
+		c->issticky = 1;
+	} else if(!sticky && c->issticky) {
+		c->issticky = 0;
+		arrange(c->mon);
+	}
+}
+
+void
 setlayout(const Arg *arg)
 {
 	if (!selmon)
@@ -3012,6 +3026,16 @@ togglefullscreen(const Arg *arg)
 }
 
 void
+togglesticky(const Arg *arg)
+{
+	Client *c = focustop(selmon);
+	if(!c)
+		return;
+
+	setsticky(c, !c->issticky);
+}
+
+void
 toggletag(const Arg *arg)
 {
 	uint32_t newtags;
@@ -3366,6 +3390,33 @@ zoom(const Arg *arg)
 
 	focusclient(sel, 1);
 	arrange(selmon);
+}
+
+void
+regions(const Arg *arg)
+{
+	int pipefd[2];
+	Client *c;
+	Monitor *m;
+
+	if (pipe(pipefd) == -1)
+		return;
+	if (fork() == 0) {
+		close(pipefd[1]);
+		dup2(pipefd[0], STDIN_FILENO);
+		close(pipefd[0]);
+		setsid();
+		execvp(((char **)arg->v)[0], (char **)arg->v);
+		die("dwl: execvp %s failed:", ((char **)arg->v)[0]);
+	}
+
+	close(pipefd[0]);
+	wl_list_for_each(m, &mons, link)
+		wl_list_for_each(c, &clients, link)
+			if (VISIBLEON(c, m))
+				dprintf(pipefd[1], "%d,%d %dx%d\n",
+				        c->geom.x, c->geom.y, c->geom.width, c->geom.height);
+	close(pipefd[1]);
 }
 
 #ifdef XWAYLAND
