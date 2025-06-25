@@ -22,7 +22,7 @@
         xwayland
         pkg-config
         
-        wlroots_0_18
+        wlroots_0_19
         tllist
         fcft
         pixman
