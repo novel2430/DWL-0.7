@@ -85,7 +85,7 @@
 /* enums */
 enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
 enum { XDGShell, LayerShell, X11 }; /* client types */
-enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
+enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrTop, LyrFS, LyrOverlay, LyrIMPopup, LyrBlock, NUM_LAYERS }; /* scene layers */
 
 typedef union {
 	int i;
@@ -140,7 +140,7 @@ typedef struct {
 #endif
 	unsigned int bw;
 	uint32_t tags;
-	int isfloating, isurgent, isfullscreen, neverdim, issticky;
+	int isfloating, isurgent, isfullscreen, neverdim, issticky;;
 	uint32_t resize; /* configure serial of a pending resize */
 } Client;
 
@@ -362,8 +362,8 @@ static void toggledimming(const Arg *arg);
 static void toggledimmingclient(const Arg *arg);
 static void togglebar(const Arg *arg);
 static void togglefloating(const Arg *arg);
-static void togglefullscreen(const Arg *arg);
 static void togglesticky(const Arg *arg);
+static void togglefullscreen(const Arg *arg);
 static void toggletag(const Arg *arg);
 static void toggleview(const Arg *arg);
 static void remembertoggleview(const Arg *arg);
@@ -437,8 +437,10 @@ static struct wlr_box sgeom;
 static struct wl_list mons;
 static Monitor *selmon;
 static int DIMOPT = 1;
+
 static struct zdwl_ipc_manager_v2_interface dwl_manager_implementation = {.release = dwl_ipc_manager_release, .get_output = dwl_ipc_manager_get_output};
 static struct zdwl_ipc_output_v2_interface dwl_output_implementation = {.release = dwl_ipc_output_release, .set_tags = dwl_ipc_output_set_tags, .set_layout = dwl_ipc_output_set_layout, .set_client_tags = dwl_ipc_output_set_client_tags};
+
 
 /* global event handlers */
 static struct wl_listener cursor_axis = {.notify = axisnotify};
@@ -488,6 +490,9 @@ static struct wlr_xwayland *xwayland;
 
 /* attempt to encapsulate suck into one file */
 #include "client.h"
+
+/* ime */
+#include "ime.h"
 
 struct Pertag {
 	unsigned int curtag, prevtag; /* current and previous tag */
@@ -756,6 +761,9 @@ cleanup(void)
 	wlr_xcursor_manager_destroy(cursor_mgr);
 
 	destroykeyboardgroup(&kb_group->destroy, NULL);
+
+	/* Destroy input method relay */
+	dwl_im_relay_finish(dwl_input_method_relay);
 
 	/* If it's not destroyed manually it will cause a use-after-free of wlr_seat.
 	 * Destroy it until it's fixed in the wlroots side */
@@ -1746,6 +1754,7 @@ focusclient(Client *c, int lift)
 
 	if (!c) {
 		/* With no client, all we have left is to clear focus */
+		dwl_im_relay_set_focus(dwl_input_method_relay, NULL);
 		wlr_seat_keyboard_notify_clear_focus(seat);
 		return;
 	}
@@ -1755,6 +1764,9 @@ focusclient(Client *c, int lift)
 
 	/* Have a client, so focus its top-level wlr_surface */
 	client_notify_enter(client_surface(c), wlr_seat_get_keyboard(seat));
+
+  	/* set text input focus */
+  	dwl_im_relay_set_focus(dwl_input_method_relay, client_surface(c));
 
 	/* Activate the new client */
 	client_activate_surface(client_surface(c), 1);
@@ -1952,10 +1964,12 @@ keypress(struct wl_listener *listener, void *data)
 	if (handled)
 		return;
 
-	wlr_seat_set_keyboard(seat, &group->wlr_group->keyboard);
-	/* Pass unhandled keycodes along to the client. */
-	wlr_seat_keyboard_notify_key(seat, event->time_msec,
-			event->keycode, event->state);
+	if (!dwl_im_keyboard_grab_forward_key(group, event)) {
+	  wlr_seat_set_keyboard(seat, &group->wlr_group->keyboard);
+	  /* Pass unhandled keycodes along to the client. */
+	  wlr_seat_keyboard_notify_key(seat, event->time_msec, event->keycode,
+	                               event->state);
+	}
 }
 
 void
@@ -1965,10 +1979,12 @@ keypressmod(struct wl_listener *listener, void *data)
 	 * pressed. We simply communicate this to the client. */
 	KeyboardGroup *group = wl_container_of(listener, group, modifiers);
 
-	wlr_seat_set_keyboard(seat, &group->wlr_group->keyboard);
-	/* Send modifiers to the client. */
-	wlr_seat_keyboard_notify_modifiers(seat,
-			&group->wlr_group->keyboard.modifiers);
+	if (!dwl_im_keyboard_grab_forward_modifiers(group)) {
+	  wlr_seat_set_keyboard(seat, &group->wlr_group->keyboard);
+	  /* Send modifiers to the client. */
+	  wlr_seat_keyboard_notify_modifiers(seat,
+	                                     &group->wlr_group->keyboard.modifiers);
+	}
 }
 
 int
@@ -2835,7 +2851,7 @@ setup(void)
 	wl_signal_add(&xdg_shell->events.new_toplevel, &new_xdg_toplevel);
 	wl_signal_add(&xdg_shell->events.new_popup, &new_xdg_popup);
 
-	layer_shell = wlr_layer_shell_v1_create(dpy, 4);
+	layer_shell = wlr_layer_shell_v1_create(dpy, 3);
 	wl_signal_add(&layer_shell->events.new_surface, &new_layer_surface);
 
 	idle_notifier = wlr_idle_notifier_v1_create(dpy);
@@ -2921,6 +2937,12 @@ setup(void)
 	output_mgr = wlr_output_manager_v1_create(dpy);
 	wl_signal_add(&output_mgr->events.apply, &output_mgr_apply);
 	wl_signal_add(&output_mgr->events.test, &output_mgr_test);
+
+	/* create text_input-, and input_method-protocol relevant globals */
+	input_method_manager = wlr_input_method_manager_v2_create(dpy);
+	text_input_manager = wlr_text_input_manager_v3_create(dpy);	
+	dwl_input_method_relay = calloc(1, sizeof(*dwl_input_method_relay));
+	dwl_input_method_relay = dwl_im_relay_create();
 
 	wl_global_create(dpy, &zdwl_ipc_manager_v2_interface, 2, NULL, dwl_ipc_manager_bind);
 
@@ -3339,51 +3361,6 @@ urgent(struct wl_listener *listener, void *data)
 }
 
 void
-view(const Arg *arg)
-{
-	size_t i, tmptag;
-
-	if (!selmon || (arg->ui & TAGMASK) == selmon->tagset[selmon->seltags])
-		return;
-	selmon->seltags ^= 1; /* toggle sel tagset */
-	if (arg->ui & ~0) {
-		selmon->tagset[selmon->seltags] = arg->ui & TAGMASK;
-		selmon->pertag->prevtag = selmon->pertag->curtag;
-
-		if (arg->ui == TAGMASK)
-			selmon->pertag->curtag = 0;
-		else {
-			for (i = 0; !(arg->ui & 1 << i); i++) ;
-			selmon->pertag->curtag = i + 1;
-		}
-	} else {
-		tmptag = selmon->pertag->prevtag;
-		selmon->pertag->prevtag = selmon->pertag->curtag;
-		selmon->pertag->curtag = tmptag;
-	}
-
-	selmon->nmaster = selmon->pertag->nmasters[selmon->pertag->curtag];
-	selmon->mfact = selmon->pertag->mfacts[selmon->pertag->curtag];
-	selmon->sellt = selmon->pertag->sellts[selmon->pertag->curtag];
-	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
-	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
-
-  // try to restore focus client
-  Client *target = NULL;
-  int tagidx = selmon->pertag->curtag - 1;
-  if (selmon->pertag && tagidx >= 0 && tagidx < TAGCOUNT) {
-    Client *rec = selmon->pertag->prev_focused[tagidx];
-    if (rec && rec->mon == selmon && (rec->tags & arg->ui))
-      target = rec;
-  }
-  focusclient(target ? target : focustop(selmon), 1);
-
-	//focusclient(focustop(selmon), 1);
-	arrange(selmon);
-	printstatus();
-}
-
-void
 rememberview(const Arg *arg)
 {
 	size_t i, tmptag;
@@ -3432,6 +3409,50 @@ rememberview(const Arg *arg)
 }
 
 void
+view(const Arg *arg)
+{
+	size_t i, tmptag;
+
+	if (!selmon || (arg->ui & TAGMASK) == selmon->tagset[selmon->seltags])
+		return;
+	selmon->seltags ^= 1; /* toggle sel tagset */
+	if (arg->ui & ~0) {
+		selmon->tagset[selmon->seltags] = arg->ui & TAGMASK;
+		selmon->pertag->prevtag = selmon->pertag->curtag;
+
+		if (arg->ui == TAGMASK)
+			selmon->pertag->curtag = 0;
+		else {
+			for (i = 0; !(arg->ui & 1 << i); i++) ;
+			selmon->pertag->curtag = i + 1;
+		}
+	} else {
+		tmptag = selmon->pertag->prevtag;
+		selmon->pertag->prevtag = selmon->pertag->curtag;
+		selmon->pertag->curtag = tmptag;
+	}
+
+	selmon->nmaster = selmon->pertag->nmasters[selmon->pertag->curtag];
+	selmon->mfact = selmon->pertag->mfacts[selmon->pertag->curtag];
+	selmon->sellt = selmon->pertag->sellts[selmon->pertag->curtag];
+	selmon->lt[selmon->sellt] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt];
+	selmon->lt[selmon->sellt^1] = selmon->pertag->ltidxs[selmon->pertag->curtag][selmon->sellt^1];
+
+  // try to restore focus client
+  Client *target = NULL;
+  int tagidx = selmon->pertag->curtag - 1;
+  if (selmon->pertag && tagidx >= 0 && tagidx < TAGCOUNT) {
+    Client *rec = selmon->pertag->prev_focused[tagidx];
+    if (rec && rec->mon == selmon && (rec->tags & arg->ui))
+      target = rec;
+  }
+  focusclient(target ? target : focustop(selmon), 1);
+	//focusclient(focustop(selmon), 1);
+	arrange(selmon);
+	printstatus();
+}
+
+void
 virtualkeyboard(struct wl_listener *listener, void *data)
 {
 	struct wlr_virtual_keyboard_v1 *kb = data;
@@ -3474,6 +3495,10 @@ xytonode(double x, double y, struct wlr_surface **psurface,
 	int layer;
 
 	for (layer = NUM_LAYERS - 1; !surface && layer >= 0; layer--) {
+
+		if (layer == LyrIMPopup)
+    	  continue;
+
 		if (!(node = wlr_scene_node_at(&layers[layer]->node, x, y, nx, ny)))
 			continue;
 
